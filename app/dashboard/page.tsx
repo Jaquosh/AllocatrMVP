@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
 
 interface Warehouse {
   id: string;
@@ -22,6 +24,7 @@ interface AllocationResult extends Warehouse {
 }
 
 export default function DashboardPage() {
+  const [isLoading, setIsLoading] = useState(true);
   const [sku, setSku] = useState('SHOE-001');
   const [orderQuantity, setOrderQuantity] = useState(1000);
   const [coverageDays, setCoverageDays] = useState(21);
@@ -40,6 +43,34 @@ export default function DashboardPage() {
     'WH-SOUTH': 28.6, // 20/70 = 28.6%
   });
   const [results, setResults] = useState<AllocationResult[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login');
+      } else {
+        setIsLoading(false);
+      }
+    };
+
+    checkUser();
+  }, [supabase, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-gray-600">Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   // Mock warehouse data
   const mockWarehouses: Warehouse[] = [
@@ -189,6 +220,71 @@ export default function DashboardPage() {
     });
 
     setResults(finalResults);
+  };
+
+  const saveAllocation = async () => {
+    if (!results) return;
+
+    setSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const totalAllocated = results.reduce((sum, r) => sum + r.allocatedUnits, 0);
+
+      // Insert the main allocation record
+      const { data: allocation, error: allocationError } = await supabase
+        .from('allocations')
+        .insert({
+          user_id: user.id,
+          sku,
+          order_quantity: orderQuantity,
+          coverage_days: coverageDays,
+          total_daily_forecast: totalDailyForecast,
+          allocation_mode: allocationMode,
+          total_allocated: totalAllocated,
+        })
+        .select()
+        .single();
+
+      if (allocationError) throw allocationError;
+
+      // Insert allocation items
+      const items = results.map((r) => ({
+        allocation_id: allocation.id,
+        warehouse_id: r.id,
+        warehouse_name: r.name,
+        forecast: r.forecast,
+        on_hand: r.onHand,
+        in_transit: r.inTransit,
+        pack_size: r.packSize,
+        target_units: r.targetUnits,
+        gap: r.gap,
+        allocated_units: r.allocatedUnits,
+        coverage_before: r.coverageBefore,
+        coverage_after: r.coverageAfter,
+        fulfillment_percentage: warehouseFulfillmentPercentages[r.id],
+        allocation_percentage: allocationMode === 'manual' ? warehousePercentages[r.id] : null,
+      }));
+
+      const { error: itemsError } = await supabase
+        .from('allocation_items')
+        .insert(items);
+
+      if (itemsError) throw itemsError;
+
+      setSaveMessage({ type: 'success', text: 'Allocation saved successfully!' });
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error: any) {
+      console.error('Error saving allocation:', error);
+      setSaveMessage({ type: 'error', text: error.message || 'Failed to save allocation' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const exportToCSV = () => {
@@ -432,13 +528,36 @@ export default function DashboardPage() {
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold">Allocation Results</h2>
-              <button
-                onClick={exportToCSV}
-                className="px-4 py-2 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-              >
-                Export CSV
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveAllocation}
+                  disabled={saving}
+                  className="px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Saving...' : 'Save Allocation'}
+                </button>
+                <button
+                  onClick={exportToCSV}
+                  className="px-4 py-2 bg-green-600 text-white font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  Export CSV
+                </button>
+              </div>
             </div>
+
+            {saveMessage && (
+              <div className={`mb-4 p-4 rounded-md ${
+                saveMessage.type === 'success'
+                  ? 'bg-green-50 border border-green-200'
+                  : 'bg-red-50 border border-red-200'
+              }`}>
+                <p className={`text-sm ${
+                  saveMessage.type === 'success' ? 'text-green-800' : 'text-red-800'
+                }`}>
+                  {saveMessage.text}
+                </p>
+              </div>
+            )}
 
             <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-md">
               <p className="text-sm text-blue-800">
