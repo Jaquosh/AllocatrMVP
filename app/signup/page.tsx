@@ -54,8 +54,8 @@ export default function SignupPage() {
           router.refresh();
         }, 2000);
       }
-    } catch (error: any) {
-      setError(error.message || 'Failed to create account');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to create account');
     } finally {
       setLoading(false);
     }

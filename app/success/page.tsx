@@ -29,7 +29,7 @@ export default function SuccessPage() {
         </div>
 
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4">What's Next?</h2>
+          <h2 className="text-lg font-semibold mb-4">What&apos;s Next?</h2>
           <ul className="text-left space-y-3 text-gray-600">
             <li className="flex items-start">
               <span className="text-blue-500 mr-2">→</span>

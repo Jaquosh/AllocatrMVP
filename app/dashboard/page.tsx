@@ -279,9 +279,9 @@ export default function DashboardPage() {
 
       // Clear success message after 3 seconds
       setTimeout(() => setSaveMessage(null), 3000);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving allocation:', error);
-      setSaveMessage({ type: 'error', text: error.message || 'Failed to save allocation' });
+      setSaveMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to save allocation' });
     } finally {
       setSaving(false);
     }

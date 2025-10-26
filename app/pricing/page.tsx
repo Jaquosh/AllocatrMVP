@@ -1,12 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function PricingPage() {
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleUpgrade = async () => {
     setLoading(true);
@@ -23,9 +21,9 @@ export default function PricingPage() {
       } else {
         throw new Error(data.error || 'Failed to create checkout session');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Checkout error:', error);
-      alert(error.message || 'Failed to start checkout');
+      alert(error instanceof Error ? error.message : 'Failed to start checkout');
       setLoading(false);
     }
   };
