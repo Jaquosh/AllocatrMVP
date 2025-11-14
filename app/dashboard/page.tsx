@@ -107,8 +107,25 @@ export default function DashboardPage() {
     const remainingFulfillment = Object.fromEntries(
       Object.entries(warehouseFulfillmentPercentages).filter(([key]) => key !== id)
     );
+
+    // Auto-rebalance fulfillment percentages to sum to 100%
+    const totalRemainingFulfillment = Object.values(remainingFulfillment).reduce((sum, val) => sum + val, 0);
+
+    if (totalRemainingFulfillment > 0 && totalRemainingFulfillment !== 100) {
+      const scaleFactor = 100 / totalRemainingFulfillment;
+      const rebalancedFulfillment: Record<string, number> = {};
+
+      Object.entries(remainingFulfillment).forEach(([key, value]) => {
+        rebalancedFulfillment[key] = Math.round((value * scaleFactor) * 100) / 100; // Round to 2 decimals
+      });
+
+      setWarehouseFulfillmentPercentages(rebalancedFulfillment);
+      alert('Warehouse deleted. Fulfillment percentages have been automatically rebalanced across remaining warehouses to maintain 100% total.');
+    } else {
+      setWarehouseFulfillmentPercentages(remainingFulfillment);
+    }
+
     setWarehousePercentages(remainingPercentages);
-    setWarehouseFulfillmentPercentages(remainingFulfillment);
   };
 
   const updateWarehouseName = (id: string, newName: string) => {
@@ -130,7 +147,7 @@ export default function DashboardPage() {
       const normalizedFulfillmentPercentage = totalFulfillmentPercentages > 0
         ? warehouseFulfillmentPercentages[wh.id] / totalFulfillmentPercentages
         : 0;
-      const calculatedForecast = totalDailyForecast * (normalizedFulfillmentPercentage / 100);
+      const calculatedForecast = totalDailyForecast * normalizedFulfillmentPercentage;
 
       return {
         ...wh,
@@ -381,7 +398,7 @@ export default function DashboardPage() {
                   const normalizedFulfillmentPercentage = totalFulfillmentPercentages > 0
                     ? warehouseFulfillmentPercentages[wh.id] / totalFulfillmentPercentages
                     : 0;
-                  const calculatedForecast = totalDailyForecast * (normalizedFulfillmentPercentage / 100);
+                  const calculatedForecast = totalDailyForecast * normalizedFulfillmentPercentage;
                   const isEditing = editingWarehouseId === wh.id;
 
                   return (
