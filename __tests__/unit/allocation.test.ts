@@ -9,7 +9,6 @@ describe('Allocation Algorithm', () => {
       forecast: 10, // units per day
       onHand: 50,
       inTransit: 0,
-      packSize: 12,
     },
     {
       id: 'WH-WEST',
@@ -17,9 +16,10 @@ describe('Allocation Algorithm', () => {
       forecast: 20,
       onHand: 40,
       inTransit: 0,
-      packSize: 12,
     },
   ];
+
+  const SKU_PACK_SIZE = 12; // SKU-level pack size
 
   describe('Auto Mode', () => {
     it('should allocate entire order quantity respecting pack sizes', () => {
@@ -29,6 +29,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240, // Can be divided evenly into packs of 12
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT: Run the function
@@ -46,6 +47,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 120, // Enough for 10 packs
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // WH-EAST: 50 onHand / 10 forecast = 5 days coverage
@@ -71,7 +73,6 @@ describe('Allocation Algorithm', () => {
           forecast: 0, // Zero forecast - could cause division by zero!
           onHand: 100,
           inTransit: 0,
-          packSize: 12,
         },
         {
           id: 'WH-2',
@@ -79,7 +80,6 @@ describe('Allocation Algorithm', () => {
           forecast: 10,
           onHand: 50,
           inTransit: 0,
-          packSize: 12,
         },
       ];
 
@@ -88,6 +88,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 120,
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT & ASSERT: Should not throw error
@@ -105,6 +106,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240,
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT
@@ -123,6 +125,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 6, // Less than pack size of 12
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT
@@ -142,6 +145,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240,
         coverageDays: 21,
         allocationMode: 'manual' as const,
+        packSize: SKU_PACK_SIZE,
         warehousePercentages: {
           'WH-EAST': 25,  // 25% = 60 units = 5 packs
           'WH-WEST': 75,  // 75% = 180 units = 15 packs
@@ -166,6 +170,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240,
         coverageDays: 21,
         allocationMode: 'manual' as const,
+        packSize: SKU_PACK_SIZE,
         warehousePercentages: {
           'WH-EAST': 20,  // 20/60 = 33.3%
           'WH-WEST': 40,  // 40/60 = 66.7%
@@ -193,6 +198,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240,
         coverageDays: 21,
         allocationMode: 'manual' as const,
+        packSize: SKU_PACK_SIZE,
         warehousePercentages: {
           'WH-EAST': 100,  // Only specify one warehouse
           // WH-WEST not specified
@@ -222,12 +228,12 @@ describe('Allocation Algorithm', () => {
             forecast: 10, // 10 units/day
             onHand: 50,
             inTransit: 0,
-            packSize: 12,
           }
         ],
         orderQuantity: 120, // 10 packs
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT
@@ -251,12 +257,12 @@ describe('Allocation Algorithm', () => {
             forecast: 10,
             onHand: 30,
             inTransit: 20, // Should be included in coverage
-            packSize: 12,
           }
         ],
         orderQuantity: 120,
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT
@@ -276,6 +282,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 240,
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT
@@ -292,6 +299,7 @@ describe('Allocation Algorithm', () => {
         orderQuantity: 0,
         coverageDays: 21,
         allocationMode: 'auto' as const,
+        packSize: SKU_PACK_SIZE,
       };
 
       // ACT

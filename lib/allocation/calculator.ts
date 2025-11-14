@@ -7,7 +7,6 @@ export interface Warehouse {
   forecast: number;
   onHand: number;
   inTransit: number;
-  packSize: number;
 }
 
 export interface AllocationResult extends Warehouse {
@@ -16,6 +15,7 @@ export interface AllocationResult extends Warehouse {
   allocatedUnits: number;
   coverageBefore: number;
   coverageAfter: number;
+  packSize: number; // Included in result for display purposes
 }
 
 export interface AllocationInput {
@@ -24,6 +24,7 @@ export interface AllocationInput {
   coverageDays: number;
   allocationMode: 'auto' | 'manual';
   warehousePercentages?: Record<string, number>;
+  packSize: number; // SKU-level pack size
 }
 
 /**
@@ -32,7 +33,7 @@ export interface AllocationInput {
  * @returns Array of allocation results with calculated units for each warehouse
  */
 export function calculateAllocation(input: AllocationInput): AllocationResult[] {
-  const { warehouses, orderQuantity, coverageDays, allocationMode, warehousePercentages = {} } = input;
+  const { warehouses, orderQuantity, coverageDays, allocationMode, warehousePercentages = {}, packSize } = input;
 
   // Step 1: Calculate initial state for each warehouse
   const warehousesWithGaps = warehouses.map((wh) => {
@@ -60,7 +61,7 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
     warehousesWithGaps.forEach((wh) => {
       const normalizedPercentage = totalPercentages > 0 ? (warehousePercentages[wh.id] || 0) / totalPercentages : 0;
       const rawAllocation = normalizedPercentage * orderQuantity;
-      wh.allocatedUnits = Math.floor(rawAllocation / wh.packSize) * wh.packSize;
+      wh.allocatedUnits = Math.floor(rawAllocation / packSize) * packSize;
     });
 
     const totalAllocated = warehousesWithGaps.reduce((sum, wh) => sum + wh.allocatedUnits, 0);
@@ -75,9 +76,9 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
     }).sort((a, b) => b.remainder - a.remainder);
 
     for (const { wh } of withRemainders) {
-      if (remainingUnits >= wh.packSize) {
-        wh.allocatedUnits += wh.packSize;
-        remainingUnits -= wh.packSize;
+      if (remainingUnits >= packSize) {
+        wh.allocatedUnits += packSize;
+        remainingUnits -= packSize;
       }
     }
   } else {
@@ -88,7 +89,7 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
       let lowestCoverage = Infinity;
 
       for (const wh of warehousesWithGaps) {
-        if (remainingUnits < wh.packSize) continue;
+        if (remainingUnits < packSize) continue;
 
         const inventoryAfter = wh.currentInventory + wh.allocatedUnits;
         const coverageAfter = wh.forecast > 0 ? inventoryAfter / wh.forecast : Infinity;
@@ -101,8 +102,8 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
 
       if (!lowestCoverageWH) break;
 
-      lowestCoverageWH.allocatedUnits += lowestCoverageWH.packSize;
-      remainingUnits -= lowestCoverageWH.packSize;
+      lowestCoverageWH.allocatedUnits += packSize;
+      remainingUnits -= packSize;
     }
   }
 
@@ -117,7 +118,7 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
       forecast: wh.forecast,
       onHand: wh.onHand,
       inTransit: wh.inTransit,
-      packSize: wh.packSize,
+      packSize, // SKU-level pack size included for display
       targetUnits: wh.targetUnits,
       gap: wh.gap,
       allocatedUnits: wh.allocatedUnits,

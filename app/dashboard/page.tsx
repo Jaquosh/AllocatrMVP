@@ -3,33 +3,33 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { calculateAllocation as calculateAllocationLogic } from '@/lib/allocation/calculator';
+import type { Warehouse as CalculatorWarehouse, AllocationResult as CalculatorResult } from '@/lib/allocation/calculator';
 
-interface Warehouse {
-  id: string;
-  name: string;
-  forecast: number; // units per day
-  onHand: number;
-  inTransit: number;
-  packSize: number;
+interface Warehouse extends CalculatorWarehouse {
   capacityMax?: number;
   minPresentation?: number;
 }
 
-interface AllocationResult extends Warehouse {
-  targetUnits: number;
-  gap: number;
-  allocatedUnits: number;
-  coverageBefore: number;
-  coverageAfter: number;
-}
+type AllocationResult = CalculatorResult;
+
+// Default warehouse templates
+const DEFAULT_WAREHOUSES: Warehouse[] = [
+  { id: 'WH-EAST', name: 'East Coast DC', forecast: 15, onHand: 100, inTransit: 50 },
+  { id: 'WH-WEST', name: 'West Coast DC', forecast: 25, onHand: 80, inTransit: 0 },
+  { id: 'WH-CENTRAL', name: 'Central DC', forecast: 10, onHand: 200, inTransit: 100 },
+  { id: 'WH-SOUTH', name: 'Southern DC', forecast: 20, onHand: 50, inTransit: 25 },
+];
 
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [sku, setSku] = useState('SHOE-001');
+  const [packSize, setPackSize] = useState(12); // SKU-level pack size
   const [orderQuantity, setOrderQuantity] = useState(1000);
   const [coverageDays, setCoverageDays] = useState(21);
-  const [totalDailyForecast, setTotalDailyForecast] = useState(70); // Total units/day across all warehouses
+  const [totalDailyForecast, setTotalDailyForecast] = useState(70);
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual'>('auto');
+  const [warehouses, setWarehouses] = useState<Warehouse[]>(DEFAULT_WAREHOUSES);
   const [warehousePercentages, setWarehousePercentages] = useState<Record<string, number>>({
     'WH-EAST': 25,
     'WH-WEST': 25,
@@ -37,14 +37,15 @@ export default function DashboardPage() {
     'WH-SOUTH': 25,
   });
   const [warehouseFulfillmentPercentages, setWarehouseFulfillmentPercentages] = useState<Record<string, number>>({
-    'WH-EAST': 21.4, // 15/70 = 21.4%
-    'WH-WEST': 35.7, // 25/70 = 35.7%
-    'WH-CENTRAL': 14.3, // 10/70 = 14.3%
-    'WH-SOUTH': 28.6, // 20/70 = 28.6%
+    'WH-EAST': 21.4,
+    'WH-WEST': 35.7,
+    'WH-CENTRAL': 14.3,
+    'WH-SOUTH': 28.6,
   });
   const [results, setResults] = useState<AllocationResult[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
 
   const router = useRouter();
   const supabase = createClient();
@@ -72,151 +73,76 @@ export default function DashboardPage() {
     );
   }
 
-  // Mock warehouse data
-  const mockWarehouses: Warehouse[] = [
-    {
-      id: 'WH-EAST',
-      name: 'East Coast DC',
-      forecast: 15, // units per day
-      onHand: 100,
-      inTransit: 50,
-      packSize: 12,
-    },
-    {
-      id: 'WH-WEST',
-      name: 'West Coast DC',
-      forecast: 25,
-      onHand: 80,
+  // Warehouse management functions
+  const addWarehouse = () => {
+    const newId = `WH-${Date.now()}`;
+    const newWarehouse: Warehouse = {
+      id: newId,
+      name: 'New Warehouse',
+      forecast: 0,
+      onHand: 0,
       inTransit: 0,
-      packSize: 12,
-    },
-    {
-      id: 'WH-CENTRAL',
-      name: 'Central DC',
-      forecast: 10,
-      onHand: 200,
-      inTransit: 100,
-      packSize: 12,
-    },
-    {
-      id: 'WH-SOUTH',
-      name: 'Southern DC',
-      forecast: 20,
-      onHand: 50,
-      inTransit: 25,
-      packSize: 12,
-    },
-  ];
+    };
+
+    setWarehouses([...warehouses, newWarehouse]);
+
+    // Initialize percentages for new warehouse
+    const defaultPercentage = 100 / (warehouses.length + 1);
+    setWarehousePercentages({ ...warehousePercentages, [newId]: defaultPercentage });
+    setWarehouseFulfillmentPercentages({ ...warehouseFulfillmentPercentages, [newId]: defaultPercentage });
+    setEditingWarehouseId(newId);
+  };
+
+  const deleteWarehouse = (id: string) => {
+    if (warehouses.length <= 1) {
+      alert('Cannot delete the last warehouse. At least one warehouse is required.');
+      return;
+    }
+
+    setWarehouses(warehouses.filter(wh => wh.id !== id));
+
+    // Remove from percentages
+    const { [id]: _, ...remainingPercentages } = warehousePercentages;
+    const { [id]: __, ...remainingFulfillment } = warehouseFulfillmentPercentages;
+    setWarehousePercentages(remainingPercentages);
+    setWarehouseFulfillmentPercentages(remainingFulfillment);
+  };
+
+  const updateWarehouseName = (id: string, newName: string) => {
+    setWarehouses(warehouses.map(wh =>
+      wh.id === id ? { ...wh, name: newName } : wh
+    ));
+  };
+
+  const updateWarehouseField = (id: string, field: keyof Warehouse, value: number) => {
+    setWarehouses(warehouses.map(wh =>
+      wh.id === id ? { ...wh, [field]: value } : wh
+    ));
+  };
 
   const calculateAllocation = () => {
-    // Step 1: Calculate initial state for each warehouse with dynamic forecasts
-    const warehousesWithGaps = mockWarehouses.map((wh) => {
-      // Calculate this warehouse's forecast based on total forecast × fulfillment %
+    // Calculate forecast for each warehouse based on fulfillment %
+    const warehousesWithCalculatedForecast = warehouses.map((wh) => {
       const totalFulfillmentPercentages = Object.values(warehouseFulfillmentPercentages).reduce((sum, p) => sum + p, 0);
       const normalizedFulfillmentPercentage = totalFulfillmentPercentages > 0
         ? warehouseFulfillmentPercentages[wh.id] / totalFulfillmentPercentages
         : 0;
       const calculatedForecast = totalDailyForecast * (normalizedFulfillmentPercentage / 100);
 
-      const targetUnits = calculatedForecast * coverageDays;
-      const currentInventory = wh.onHand + wh.inTransit;
-      const gap = Math.max(0, targetUnits - currentInventory);
-      const coverageBefore = calculatedForecast > 0 ? currentInventory / calculatedForecast : 0;
-
       return {
         ...wh,
-        forecast: calculatedForecast, // Override with calculated forecast
-        targetUnits,
-        gap,
-        currentInventory,
-        coverageBefore,
-        allocatedUnits: 0, // Start with 0 allocated
+        forecast: calculatedForecast,
       };
     });
 
-    let remainingUnits = orderQuantity;
-
-    if (allocationMode === 'manual') {
-      // Manual mode: allocate by percentages
-      const totalPercentages = Object.values(warehousePercentages).reduce((sum, p) => sum + p, 0);
-
-      warehousesWithGaps.forEach((wh) => {
-        const normalizedPercentage = totalPercentages > 0 ? warehousePercentages[wh.id] / totalPercentages : 0;
-        const rawAllocation = normalizedPercentage * orderQuantity;
-
-        // Round down to pack size
-        wh.allocatedUnits = Math.floor(rawAllocation / wh.packSize) * wh.packSize;
-      });
-
-      // Distribute remaining units by remainder
-      const totalAllocated = warehousesWithGaps.reduce((sum, wh) => sum + wh.allocatedUnits, 0);
-      remainingUnits = orderQuantity - totalAllocated;
-
-      // Calculate remainders and sort
-      const withRemainders = warehousesWithGaps.map((wh) => {
-        const normalizedPercentage = totalPercentages > 0 ? warehousePercentages[wh.id] / totalPercentages : 0;
-        const rawAllocation = normalizedPercentage * orderQuantity;
-        const remainder = rawAllocation - wh.allocatedUnits;
-        return { wh, remainder };
-      }).sort((a, b) => b.remainder - a.remainder);
-
-      for (const { wh } of withRemainders) {
-        if (remainingUnits >= wh.packSize) {
-          wh.allocatedUnits += wh.packSize;
-          remainingUnits -= wh.packSize;
-        }
-      }
-
-    } else {
-      // Auto mode: BALANCED COVERAGE ALLOCATION
-      // Greedy algorithm: repeatedly allocate to warehouse with lowest coverage
-
-      while (remainingUnits > 0) {
-        // Find warehouse with lowest post-allocation coverage that can accept a pack
-        let lowestCoverageWH = null;
-        let lowestCoverage = Infinity;
-
-        for (const wh of warehousesWithGaps) {
-          // Skip warehouses where we can't add a full pack
-          if (remainingUnits < wh.packSize) continue;
-
-          // Calculate coverage if we add this allocation
-          const inventoryAfter = wh.currentInventory + wh.allocatedUnits;
-          const coverageAfter = wh.forecast > 0 ? inventoryAfter / wh.forecast : Infinity;
-
-          if (coverageAfter < lowestCoverage) {
-            lowestCoverage = coverageAfter;
-            lowestCoverageWH = wh;
-          }
-        }
-
-        // If we can't allocate to any warehouse, break
-        if (!lowestCoverageWH) break;
-
-        // Allocate one pack to the warehouse with lowest coverage
-        lowestCoverageWH.allocatedUnits += lowestCoverageWH.packSize;
-        remainingUnits -= lowestCoverageWH.packSize;
-      }
-    }
-
-    // Calculate final results with coverage metrics
-    const finalResults: AllocationResult[] = warehousesWithGaps.map((wh) => {
-      const inventoryAfter = wh.currentInventory + wh.allocatedUnits;
-      const coverageAfter = wh.forecast > 0 ? inventoryAfter / wh.forecast : 0;
-
-      return {
-        id: wh.id,
-        name: wh.name,
-        forecast: wh.forecast,
-        onHand: wh.onHand,
-        inTransit: wh.inTransit,
-        packSize: wh.packSize,
-        targetUnits: wh.targetUnits,
-        gap: wh.gap,
-        allocatedUnits: wh.allocatedUnits,
-        coverageBefore: wh.coverageBefore,
-        coverageAfter,
-      };
+    // Use extracted business logic
+    const finalResults = calculateAllocationLogic({
+      warehouses: warehousesWithCalculatedForecast,
+      orderQuantity,
+      coverageDays,
+      allocationMode,
+      warehousePercentages,
+      packSize,
     });
 
     setResults(finalResults);
@@ -375,13 +301,26 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
               <input
                 type="text"
                 value={sku}
                 onChange={(e) => setSku(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Pack Size
+                <span className="ml-1 text-xs text-gray-500">(units)</span>
+              </label>
+              <input
+                type="number"
+                value={packSize}
+                onChange={(e) => setPackSize(parseInt(e.target.value) || 1)}
+                min="1"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -426,7 +365,15 @@ export default function DashboardPage() {
 
         {/* Current Warehouse Data */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">Warehouse Data</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Warehouse Data</h2>
+            <button
+              onClick={addWarehouse}
+              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              + Add Warehouse
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -436,23 +383,43 @@ export default function DashboardPage() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Forecast/Day</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">On Hand</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">In Transit</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pack Size</th>
                   {allocationMode === 'manual' && (
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Allocation %</th>
                   )}
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {mockWarehouses.map((wh) => {
+                {warehouses.map((wh) => {
                   const totalFulfillmentPercentages = Object.values(warehouseFulfillmentPercentages).reduce((sum, p) => sum + p, 0);
                   const normalizedFulfillmentPercentage = totalFulfillmentPercentages > 0
                     ? warehouseFulfillmentPercentages[wh.id] / totalFulfillmentPercentages
                     : 0;
                   const calculatedForecast = totalDailyForecast * (normalizedFulfillmentPercentage / 100);
+                  const isEditing = editingWarehouseId === wh.id;
 
                   return (
                     <tr key={wh.id}>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{wh.name}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={wh.name}
+                            onChange={(e) => updateWarehouseName(wh.id, e.target.value)}
+                            onBlur={() => setEditingWarehouseId(null)}
+                            onKeyDown={(e) => e.key === 'Enter' && setEditingWarehouseId(null)}
+                            autoFocus
+                            className="w-full px-2 py-1 border border-blue-500 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        ) : (
+                          <span
+                            onClick={() => setEditingWarehouseId(wh.id)}
+                            className="cursor-pointer hover:text-blue-600"
+                          >
+                            {wh.name}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           <input
@@ -475,9 +442,24 @@ export default function DashboardPage() {
                       <td className="px-4 py-3 text-sm text-gray-700">
                         {calculatedForecast.toFixed(1)}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{wh.onHand}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{wh.inTransit}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{wh.packSize}</td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min="0"
+                          value={wh.onHand}
+                          onChange={(e) => updateWarehouseField(wh.id, 'onHand', parseInt(e.target.value) || 0)}
+                          className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3">
+                        <input
+                          type="number"
+                          min="0"
+                          value={wh.inTransit}
+                          onChange={(e) => updateWarehouseField(wh.id, 'inTransit', parseInt(e.target.value) || 0)}
+                          className="w-24 px-2 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
                       {allocationMode === 'manual' && (
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1">
@@ -498,6 +480,15 @@ export default function DashboardPage() {
                           </div>
                         </td>
                       )}
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => deleteWarehouse(wh.id)}
+                          disabled={warehouses.length <= 1}
+                          className="text-red-600 hover:text-red-800 disabled:text-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
