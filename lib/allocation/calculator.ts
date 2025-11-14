@@ -10,8 +10,6 @@ export interface Warehouse {
 }
 
 export interface AllocationResult extends Warehouse {
-  targetUnits: number;
-  gap: number;
   allocatedUnits: number;
   coverageBefore: number;
   coverageAfter: number;
@@ -21,7 +19,6 @@ export interface AllocationResult extends Warehouse {
 export interface AllocationInput {
   warehouses: Warehouse[];
   orderQuantity: number;
-  coverageDays: number;
   allocationMode: 'auto' | 'manual';
   warehousePercentages?: Record<string, number>;
   packSize: number; // SKU-level pack size
@@ -33,19 +30,15 @@ export interface AllocationInput {
  * @returns Array of allocation results with calculated units for each warehouse
  */
 export function calculateAllocation(input: AllocationInput): AllocationResult[] {
-  const { warehouses, orderQuantity, coverageDays, allocationMode, warehousePercentages = {}, packSize } = input;
+  const { warehouses, orderQuantity, allocationMode, warehousePercentages = {}, packSize } = input;
 
   // Step 1: Calculate initial state for each warehouse
-  const warehousesWithGaps = warehouses.map((wh) => {
-    const targetUnits = wh.forecast * coverageDays;
+  const warehousesWithCalculations = warehouses.map((wh) => {
     const currentInventory = wh.onHand + wh.inTransit;
-    const gap = Math.max(0, targetUnits - currentInventory);
     const coverageBefore = wh.forecast > 0 ? currentInventory / wh.forecast : 0;
 
     return {
       ...wh,
-      targetUnits,
-      gap,
       currentInventory,
       coverageBefore,
       allocatedUnits: 0,
@@ -58,17 +51,17 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
     // Manual mode: allocate by percentages
     const totalPercentages = Object.values(warehousePercentages).reduce((sum, p) => sum + p, 0);
 
-    warehousesWithGaps.forEach((wh) => {
+    warehousesWithCalculations.forEach((wh) => {
       const normalizedPercentage = totalPercentages > 0 ? (warehousePercentages[wh.id] || 0) / totalPercentages : 0;
       const rawAllocation = normalizedPercentage * orderQuantity;
       wh.allocatedUnits = Math.floor(rawAllocation / packSize) * packSize;
     });
 
-    const totalAllocated = warehousesWithGaps.reduce((sum, wh) => sum + wh.allocatedUnits, 0);
+    const totalAllocated = warehousesWithCalculations.reduce((sum, wh) => sum + wh.allocatedUnits, 0);
     remainingUnits = orderQuantity - totalAllocated;
 
     // Distribute remaining units by remainder
-    const withRemainders = warehousesWithGaps.map((wh) => {
+    const withRemainders = warehousesWithCalculations.map((wh) => {
       const normalizedPercentage = totalPercentages > 0 ? (warehousePercentages[wh.id] || 0) / totalPercentages : 0;
       const rawAllocation = normalizedPercentage * orderQuantity;
       const remainder = rawAllocation - wh.allocatedUnits;
@@ -88,7 +81,7 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
       let lowestCoverageWH = null;
       let lowestCoverage = Infinity;
 
-      for (const wh of warehousesWithGaps) {
+      for (const wh of warehousesWithCalculations) {
         if (remainingUnits < packSize) continue;
 
         const inventoryAfter = wh.currentInventory + wh.allocatedUnits;
@@ -108,7 +101,7 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
   }
 
   // Calculate final results with coverage metrics
-  return warehousesWithGaps.map((wh) => {
+  return warehousesWithCalculations.map((wh) => {
     const inventoryAfter = wh.currentInventory + wh.allocatedUnits;
     const coverageAfter = wh.forecast > 0 ? inventoryAfter / wh.forecast : 0;
 
@@ -119,8 +112,6 @@ export function calculateAllocation(input: AllocationInput): AllocationResult[] 
       onHand: wh.onHand,
       inTransit: wh.inTransit,
       packSize, // SKU-level pack size included for display
-      targetUnits: wh.targetUnits,
-      gap: wh.gap,
       allocatedUnits: wh.allocatedUnits,
       coverageBefore: wh.coverageBefore,
       coverageAfter,

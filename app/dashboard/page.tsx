@@ -26,7 +26,6 @@ export default function DashboardPage() {
   const [sku, setSku] = useState('SHOE-001');
   const [packSize, setPackSize] = useState(12); // SKU-level pack size
   const [orderQuantity, setOrderQuantity] = useState(1000);
-  const [coverageDays, setCoverageDays] = useState(21);
   const [totalDailyForecast, setTotalDailyForecast] = useState(70);
   const [allocationMode, setAllocationMode] = useState<'auto' | 'manual'>('auto');
   const [warehouses, setWarehouses] = useState<Warehouse[]>(DEFAULT_WAREHOUSES);
@@ -143,7 +142,6 @@ export default function DashboardPage() {
     const finalResults = calculateAllocationLogic({
       warehouses: warehousesWithCalculatedForecast,
       orderQuantity,
-      coverageDays,
       allocationMode,
       warehousePercentages,
       packSize,
@@ -165,13 +163,12 @@ export default function DashboardPage() {
       const totalAllocated = results.reduce((sum, r) => sum + r.allocatedUnits, 0);
 
       // Insert the main allocation record
-      const { data: allocation, error: allocationError } = await supabase
+      const { data: allocation, error: allocationError} = await supabase
         .from('allocations')
         .insert({
           user_id: user.id,
           sku,
           order_quantity: orderQuantity,
-          coverage_days: coverageDays,
           total_daily_forecast: totalDailyForecast,
           allocation_mode: allocationMode,
           total_allocated: totalAllocated,
@@ -190,8 +187,6 @@ export default function DashboardPage() {
         on_hand: r.onHand,
         in_transit: r.inTransit,
         pack_size: r.packSize,
-        target_units: r.targetUnits,
-        gap: r.gap,
         allocated_units: r.allocatedUnits,
         coverage_before: r.coverageBefore,
         coverage_after: r.coverageAfter,
@@ -226,8 +221,6 @@ export default function DashboardPage() {
       'On Hand',
       'In Transit',
       'Pack Size',
-      'Target Units',
-      'Gap',
       'Allocated Units',
       'Coverage Before (days)',
       'Coverage After (days)',
@@ -239,8 +232,6 @@ export default function DashboardPage() {
       r.onHand,
       r.inTransit,
       r.packSize,
-      r.targetUnits,
-      r.gap,
       r.allocatedUnits,
       r.coverageBefore.toFixed(1),
       r.coverageAfter.toFixed(1),
@@ -285,7 +276,7 @@ export default function DashboardPage() {
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                Auto (Gap-Based)
+                Auto (Balanced Coverage)
               </button>
               <button
                 onClick={() => setAllocationMode('manual')}
@@ -305,7 +296,7 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
               <input
@@ -334,15 +325,6 @@ export default function DashboardPage() {
                 type="number"
                 value={orderQuantity}
                 onChange={(e) => setOrderQuantity(parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Target Coverage (days)</label>
-              <input
-                type="number"
-                value={coverageDays}
-                onChange={(e) => setCoverageDays(parseInt(e.target.value) || 0)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -570,8 +552,6 @@ export default function DashboardPage() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Warehouse</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Units</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gap</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Allocated</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Coverage Before</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Coverage After</th>
@@ -583,8 +563,6 @@ export default function DashboardPage() {
                     return (
                       <tr key={r.id}>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{r.name}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{r.targetUnits}</td>
-                        <td className="px-4 py-3 text-sm text-gray-700">{r.gap}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-blue-600">{r.allocatedUnits}</td>
                         <td className="px-4 py-3 text-sm text-gray-700">
                           {r.coverageBefore.toFixed(1)} days

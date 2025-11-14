@@ -26,8 +26,7 @@ describe('Allocation Algorithm', () => {
       // ARRANGE: Set up test data
       const input = {
         warehouses: mockWarehouses,
-        orderQuantity: 240, // Can be divided evenly into packs of 12
-        coverageDays: 21,
+        orderQuantity: 240,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -44,8 +43,7 @@ describe('Allocation Algorithm', () => {
       // ARRANGE
       const input = {
         warehouses: mockWarehouses,
-        orderQuantity: 120, // Enough for 10 packs
-        coverageDays: 21,
+        orderQuantity: 120,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -86,7 +84,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: warehousesWithZeroForecast,
         orderQuantity: 120,
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -104,7 +101,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 240,
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -123,7 +119,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 6, // Less than pack size of 12
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -143,7 +138,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 240,
-        coverageDays: 21,
         allocationMode: 'manual' as const,
         packSize: SKU_PACK_SIZE,
         warehousePercentages: {
@@ -168,7 +162,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 240,
-        coverageDays: 21,
         allocationMode: 'manual' as const,
         packSize: SKU_PACK_SIZE,
         warehousePercentages: {
@@ -196,7 +189,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 240,
-        coverageDays: 21,
         allocationMode: 'manual' as const,
         packSize: SKU_PACK_SIZE,
         warehousePercentages: {
@@ -231,7 +223,6 @@ describe('Allocation Algorithm', () => {
           }
         ],
         orderQuantity: 120, // 10 packs
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -260,7 +251,6 @@ describe('Allocation Algorithm', () => {
           }
         ],
         orderQuantity: 120,
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -280,7 +270,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: [],
         orderQuantity: 240,
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
@@ -297,7 +286,6 @@ describe('Allocation Algorithm', () => {
       const input = {
         warehouses: mockWarehouses,
         orderQuantity: 0,
-        coverageDays: 21,
         allocationMode: 'auto' as const,
         packSize: SKU_PACK_SIZE,
       };
