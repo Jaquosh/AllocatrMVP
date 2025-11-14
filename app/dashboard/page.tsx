@@ -102,8 +102,12 @@ export default function DashboardPage() {
     setWarehouses(warehouses.filter(wh => wh.id !== id));
 
     // Remove from percentages
-    const { [id]: _, ...remainingPercentages } = warehousePercentages;
-    const { [id]: __, ...remainingFulfillment } = warehouseFulfillmentPercentages;
+    const remainingPercentages = Object.fromEntries(
+      Object.entries(warehousePercentages).filter(([key]) => key !== id)
+    );
+    const remainingFulfillment = Object.fromEntries(
+      Object.entries(warehouseFulfillmentPercentages).filter(([key]) => key !== id)
+    );
     setWarehousePercentages(remainingPercentages);
     setWarehouseFulfillmentPercentages(remainingFulfillment);
   };
