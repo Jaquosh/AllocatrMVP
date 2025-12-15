@@ -13,6 +13,35 @@ interface Warehouse extends CalculatorWarehouse {
 
 type AllocationResult = CalculatorResult;
 
+// Database types for saved allocations
+interface AllocationItem {
+  id: string;
+  allocation_id: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  forecast: number;
+  on_hand: number;
+  in_transit: number;
+  pack_size: number;
+  allocated_units: number;
+  fulfillment_percentage: number;
+  allocation_percentage?: number;
+  coverage_before: number;
+  coverage_after: number;
+}
+
+interface SavedAllocation {
+  id: string;
+  user_id: string;
+  sku: string;
+  order_quantity: number;
+  total_daily_forecast: number;
+  allocation_mode: 'auto' | 'manual';
+  total_allocated: number;
+  created_at: string;
+  allocation_items: AllocationItem[];
+}
+
 // Default warehouse templates
 const DEFAULT_WAREHOUSES: Warehouse[] = [
   { id: 'WH-EAST', name: 'East Coast DC', forecast: 15, onHand: 100, inTransit: 50 },
@@ -45,6 +74,12 @@ export default function DashboardPage() {
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [editingWarehouseId, setEditingWarehouseId] = useState<string | null>(null);
+
+  // History tab state
+  const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
+  const [savedAllocations, setSavedAllocations] = useState<SavedAllocation[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [selectedAllocation, setSelectedAllocation] = useState<SavedAllocation | null>(null);
 
   const router = useRouter();
   const supabase = createClient();
@@ -229,6 +264,101 @@ export default function DashboardPage() {
     }
   };
 
+  const loadAllocationHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Fetch allocations with their items
+      const { data: allocations, error } = await supabase
+        .from('allocations')
+        .select(`
+          *,
+          allocation_items (*)
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSavedAllocations(allocations || []);
+    } catch (error) {
+      console.error('Error loading history:', error);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleLoadIntoForm = (allocation: SavedAllocation) => {
+    // Switch to new allocation tab
+    setActiveTab('new');
+
+    // Populate form fields
+    setSku(allocation.sku);
+    setOrderQuantity(allocation.order_quantity);
+    setTotalDailyForecast(allocation.total_daily_forecast);
+    setAllocationMode(allocation.allocation_mode);
+
+    // Get pack size from first allocation item
+    if (allocation.allocation_items && allocation.allocation_items.length > 0) {
+      setPackSize(allocation.allocation_items[0].pack_size);
+    }
+
+    // Reconstruct warehouses from allocation_items
+    const loadedWarehouses: Warehouse[] = allocation.allocation_items.map((item) => ({
+      id: item.warehouse_id,
+      name: item.warehouse_name,
+      forecast: item.forecast,
+      onHand: item.on_hand,
+      inTransit: item.in_transit,
+    }));
+
+    setWarehouses(loadedWarehouses);
+
+    // Reconstruct percentages
+    const fulfillmentPercentages: Record<string, number> = {};
+    const allocationPercentages: Record<string, number> = {};
+
+    allocation.allocation_items.forEach((item) => {
+      fulfillmentPercentages[item.warehouse_id] = item.fulfillment_percentage || 0;
+      if (item.allocation_percentage) {
+        allocationPercentages[item.warehouse_id] = item.allocation_percentage;
+      }
+    });
+
+    setWarehouseFulfillmentPercentages(fulfillmentPercentages);
+    setWarehousePercentages(allocationPercentages);
+
+    // Close modal
+    setSelectedAllocation(null);
+
+    // Show message
+    setSaveMessage({ type: 'success', text: 'Allocation loaded into form' });
+    setTimeout(() => setSaveMessage(null), 3000);
+  };
+
+  const handleDeleteAllocation = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this allocation?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('allocations')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Refresh history
+      await loadAllocationHistory();
+
+      setSaveMessage({ type: 'success', text: 'Allocation deleted successfully' });
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (error) {
+      console.error('Error deleting allocation:', error);
+      setSaveMessage({ type: 'error', text: 'Failed to delete allocation' });
+    }
+  };
+
   const exportToCSV = () => {
     if (!results) return;
 
@@ -277,6 +407,37 @@ export default function DashboardPage() {
           </p>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="flex gap-4">
+            <button
+              onClick={() => setActiveTab('new')}
+              className={`px-4 py-2 border-b-2 font-medium transition-colors ${
+                activeTab === 'new'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              New Allocation
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('history');
+                loadAllocationHistory();
+              }}
+              className={`px-4 py-2 border-b-2 font-medium transition-colors ${
+                activeTab === 'history'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              History
+            </button>
+          </nav>
+        </div>
+
+        {activeTab === 'new' ? (
+          <>
         {/* Input Form */}
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <h2 className="text-xl font-semibold mb-4">Allocation Parameters</h2>
@@ -595,6 +756,167 @@ export default function DashboardPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+          </>
+        ) : (
+          /* History Tab */
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-2xl font-bold mb-4">Saved Allocations</h2>
+
+            {loadingHistory ? (
+              <div className="text-center py-8 text-gray-600">Loading...</div>
+            ) : savedAllocations.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No saved allocations yet. Create one in the &ldquo;New Allocation&rdquo; tab.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">SKU</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order Qty</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mode</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Allocated</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {savedAllocations.map((allocation) => (
+                      <tr key={allocation.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {allocation.sku}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(allocation.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {allocation.order_quantity}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            allocation.allocation_mode === 'auto'
+                              ? 'bg-blue-100 text-blue-800'
+                              : 'bg-purple-100 text-purple-800'
+                          }`}>
+                            {allocation.allocation_mode}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {allocation.total_allocated}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-4">
+                          <button
+                            onClick={() => setSelectedAllocation(allocation)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            View Details
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAllocation(allocation.id)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Detail Modal */}
+        {selectedAllocation && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-2xl font-bold">Allocation Details</h3>
+                <button
+                  onClick={() => setSelectedAllocation(null)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Allocation Summary */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div>
+                  <p className="text-sm text-gray-500">SKU</p>
+                  <p className="font-medium">{selectedAllocation.sku}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Order Quantity</p>
+                  <p className="font-medium">{selectedAllocation.order_quantity}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Allocation Mode</p>
+                  <p className="font-medium capitalize">{selectedAllocation.allocation_mode}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Total Allocated</p>
+                  <p className="font-medium">{selectedAllocation.total_allocated}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Total Daily Forecast</p>
+                  <p className="font-medium">{selectedAllocation.total_daily_forecast}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Date Created</p>
+                  <p className="font-medium">{new Date(selectedAllocation.created_at).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Warehouse Breakdown */}
+              <h4 className="text-lg font-semibold mb-3">Warehouse Breakdown</h4>
+              <div className="overflow-x-auto mb-6">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Warehouse</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">On Hand</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">In Transit</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Allocated</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Coverage Before</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Coverage After</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {selectedAllocation.allocation_items?.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-4 py-2 text-sm font-medium">{item.warehouse_name}</td>
+                        <td className="px-4 py-2 text-sm">{item.on_hand}</td>
+                        <td className="px-4 py-2 text-sm">{item.in_transit}</td>
+                        <td className="px-4 py-2 text-sm font-semibold text-blue-600">{item.allocated_units}</td>
+                        <td className="px-4 py-2 text-sm">{item.coverage_before.toFixed(1)} days</td>
+                        <td className="px-4 py-2 text-sm text-green-600 font-medium">{item.coverage_after.toFixed(1)} days</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => handleLoadIntoForm(selectedAllocation)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Load into Form
+                </button>
+                <button
+                  onClick={() => setSelectedAllocation(null)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
